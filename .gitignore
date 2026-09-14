@@ -1,7 +1,6 @@
-# Derleme çıktıları ve geçici dosyalar
+# Derleme çıktıları ve geçici klasörler
 kernel/out/
 toolchain/
-AnyKernel3/
 *.zip
 *.tar.gz
 *.o
