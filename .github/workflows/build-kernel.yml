@@ -124,8 +124,9 @@ jobs:
             cp -n "$GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild" "$GITHUB_WORKSPACE/kernel/net/wireguard/Makefile" || true
           fi
           
+          cd "$GITHUB_WORKSPACE/kernel"
           bash scripts/config --file arch/arm64/configs/m51_defconfig -e WIREGUARD
-          echo "CONFIG_WIREGUARD=y" >> "$GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig"
+          echo "CONFIG_WIREGUARD=y" >> arch/arm64/configs/m51_defconfig
           echo "==> WireGuard entegrasyonu tamamlandı."
 
       - name: Boeffla Wakelock Blocker Entegre Et
