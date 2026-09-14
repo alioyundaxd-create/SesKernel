@@ -1,6 +1,10 @@
 name: Build Galaxy M51 Custom Kernel (SM7150)
 
 on:
+  push:
+    branches:
+      - master
+      - main
   workflow_dispatch:
     inputs:
       ksu_variant:
@@ -68,13 +72,16 @@ jobs:
           git clone --depth=1 https://github.com/yuichigojo/kernel_m51.git -b 14 kernel
 
       - name: KernelSU / KernelSU-Next Entegre Et
-        if: ${{ inputs.ksu_variant != 'None' }}
+        if: ${{ github.event_name == 'push' || inputs.ksu_variant != 'None' }}
         run: |
           cd $GITHUB_WORKSPACE/kernel
-          if [ "${{ inputs.ksu_variant }}" = "KernelSU-Next (En Son)" ]; then
+          KSU_CHOICE="${{ inputs.ksu_variant }}"
+          [ -z "$KSU_CHOICE" ] && KSU_CHOICE="KernelSU-Next (En Son)"
+          
+          if [ "$KSU_CHOICE" = "KernelSU-Next (En Son)" ]; then
             echo "KernelSU-Next (En son kararlı sürüm) entegre ediliyor..."
             curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-          else
+          elif [ "$KSU_CHOICE" = "Official KernelSU (v0.9.5 - Legacy)" ]; then
             echo "Official KernelSU (v0.9.5 Legacy) entegre ediliyor..."
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh" | bash -s v0.9.5
           fi
@@ -87,29 +94,32 @@ jobs:
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/m51_defconfig
 
       - name: WireGuard Sürücüsünü Entegre Et
-        if: ${{ inputs.enable_wireguard }}
+        if: ${{ github.event_name == 'push' || inputs.enable_wireguard }}
         run: |
           echo "WireGuard çekirdek sürücüsü ekleniyor..."
-          git clone --depth=1 https://git.zx2c4.com/wireguard-linux-compat /tmp/wireguard
+          git clone --depth=1 https://github.com/WireGuard/wireguard-linux-compat.git /tmp/wireguard
           
           # jury-rig.sh ile çekirdek Makefile ve Kconfig bağlantısını yap
-          /tmp/wireguard/kernel-tree-scripts/jury-rig.sh $GITHUB_WORKSPACE/kernel
+          bash /tmp/wireguard/kernel-tree-scripts/jury-rig.sh "$GITHUB_WORKSPACE/kernel"
           
-          # Out-of-tree (O=out) derlemede symlink kopmalarını önlemek için gerçek kaynak dosyalarını aktar
-          rm -rf $GITHUB_WORKSPACE/kernel/net/wireguard
-          cp -r /tmp/wireguard/src $GITHUB_WORKSPACE/kernel/net/wireguard
-          [ -f $GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild ] && cp -n $GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild $GITHUB_WORKSPACE/kernel/net/wireguard/Makefile || true
+          # Out-of-tree derlemede symlink kopmalarını önlemek için gerçek kaynak dosyalarını aktar
+          rm -rf "$GITHUB_WORKSPACE/kernel/net/wireguard"
+          cp -r /tmp/wireguard/src "$GITHUB_WORKSPACE/kernel/net/wireguard"
+          if [ -f "$GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild" ]; then
+            cp -n "$GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild" "$GITHUB_WORKSPACE/kernel/net/wireguard/Makefile" || true
+          fi
           
-          echo "CONFIG_WIREGUARD=y" >> $GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig
+          echo "CONFIG_WIREGUARD=y" >> "$GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig"
+          echo "==> WireGuard entegrasyonu tamamlandı."
 
       - name: Boeffla Wakelock Blocker Entegre Et
-        if: ${{ inputs.enable_boeffla }}
+        if: ${{ github.event_name == 'push' || inputs.enable_boeffla }}
         run: |
           echo "Boeffla Wakelock Blocker uygulanıyor..."
-          bash $GITHUB_WORKSPACE/patches/apply_boeffla.sh $GITHUB_WORKSPACE/kernel
+          bash $GITHUB_WORKSPACE/patches/apply_boeffla.sh "$GITHUB_WORKSPACE/kernel"
 
       - name: zRAM ZSTD Yapılandırmasını Uygula
-        if: ${{ inputs.enable_zram_zstd }}
+        if: ${{ github.event_name == 'push' || inputs.enable_zram_zstd }}
         run: |
           echo "zRAM ZSTD sıkıştırma bayrakları ayarlanıyor..."
           cd $GITHUB_WORKSPACE/kernel
