@@ -1,0 +1,185 @@
+name: Build Galaxy M51 Custom Kernel (SM7150)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_variant:
+        description: 'KernelSU Sürümü'
+        required: true
+        default: 'KernelSU-Next (En Son)'
+        type: choice
+        options:
+          - 'KernelSU-Next (En Son)'
+          - 'Official KernelSU (v0.9.5 - Legacy)'
+          - 'None'
+      enable_wireguard:
+        description: 'WireGuard Entegrasyonu'
+        required: true
+        default: true
+        type: boolean
+      enable_boeffla:
+        description: 'Boeffla Wakelock Blocker'
+        required: true
+        default: true
+        type: boolean
+      enable_zram_zstd:
+        description: 'zRAM ZSTD Sıkıştırma'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Depoyu Çalışma Alanına Çek (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Derleme Bağımlılıklarını Kur
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev git zip unzip make curl \
+            libncurses5-dev libncurses-dev libelf-dev clang lld llvm ccache \
+            libxml2-utils xsltproc gnupg ca-certificates python3
+
+      - name: AOSP Clang & GCC Araç Zincirini İndir
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/toolchain
+          cd $GITHUB_WORKSPACE/toolchain
+          
+          # AOSP Clang r416183b (Android 12 Clang 12.0.7 - Linux 4.14 için en stabil derleyici)
+          echo "Clang toolchain indiriliyor..."
+          curl -LSs "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r3/clang-r416183b.tar.gz" -o clang.tar.gz
+          mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm -f clang.tar.gz
+          
+          # AArch64 GCC 4.9 cross-compiler
+          echo "AArch64 GCC indiriliyor..."
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc-arm64
+          
+          # ARM32 GCC 4.9 cross-compiler
+          echo "ARM32 GCC indiriliyor..."
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc-arm
+
+      - name: M51 SM7150 Çekirdek Kaynağını Klonla
+        run: |
+          cd $GITHUB_WORKSPACE
+          echo "Galaxy M51 SM7150 kernel kaynağı klonlanıyor..."
+          git clone --depth=1 https://github.com/yuichigojo/kernel_m51.git -b 14 kernel
+
+      - name: KernelSU / KernelSU-Next Entegre Et
+        if: ${{ inputs.ksu_variant != 'None' }}
+        run: |
+          cd $GITHUB_WORKSPACE/kernel
+          if [ "${{ inputs.ksu_variant }}" = "KernelSU-Next (En Son)" ]; then
+            echo "KernelSU-Next (En son kararlı sürüm) entegre ediliyor..."
+            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          else
+            echo "Official KernelSU (v0.9.5 Legacy) entegre ediliyor..."
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh" | bash -s v0.9.5
+          fi
+          
+          # Defconfig ayarlarını aktifleştir
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/m51_defconfig
+
+      - name: WireGuard Sürücüsünü Entegre Et
+        if: ${{ inputs.enable_wireguard }}
+        run: |
+          echo "WireGuard çekirdek sürücüsü ekleniyor..."
+          git clone --depth=1 https://git.zx2c4.com/wireguard-linux-compat /tmp/wireguard
+          cd /tmp/wireguard/src
+          ./patch-kernel.sh $GITHUB_WORKSPACE/kernel
+          
+          echo "CONFIG_WIREGUARD=y" >> $GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig
+
+      - name: Boeffla Wakelock Blocker Entegre Et
+        if: ${{ inputs.enable_boeffla }}
+        run: |
+          echo "Boeffla Wakelock Blocker uygulanıyor..."
+          bash $GITHUB_WORKSPACE/patches/apply_boeffla.sh $GITHUB_WORKSPACE/kernel
+
+      - name: zRAM ZSTD Yapılandırmasını Uygula
+        if: ${{ inputs.enable_zram_zstd }}
+        run: |
+          echo "zRAM ZSTD sıkıştırma bayrakları ayarlanıyor..."
+          cd $GITHUB_WORKSPACE/kernel
+          echo "CONFIG_CRYPTO_ZSTD=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_ZSTD_COMPRESS=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_ZSTD_DECOMPRESS=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_ZRAM_DEF_COMP_ZSTD=y" >> arch/arm64/configs/m51_defconfig
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> arch/arm64/configs/m51_defconfig
+
+      - name: Çekirdeği Derle (Compile Kernel)
+        run: |
+          cd $GITHUB_WORKSPACE/kernel
+          
+          export PATH=$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm64/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export KBUILD_BUILD_USER="SesKernel"
+          export KBUILD_BUILD_HOST="GitHubActions"
+          
+          echo "Yapılandırma dosyası hazırlanıyor: m51_defconfig"
+          make O=out m51_defconfig
+          
+          echo "Derleme başlatılıyor..."
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            Image.gz-dtb dtbo.img || make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            Image.gz dtbo.img
+
+      - name: AnyKernel3 Paketini Hazırla
+        run: |
+          cd $GITHUB_WORKSPACE
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          
+          # Özelleştirilmiş anykernel.sh dosyasını kopyala
+          cp -f $GITHUB_WORKSPACE/anykernel3/anykernel.sh AnyKernel3/anykernel.sh
+          
+          # Çıkan imaj dosyalarını AnyKernel3 içine aktar
+          if [ -f kernel/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
+            echo "Image.gz-dtb kopyalandı."
+          elif [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
+            cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+            echo "Image.gz kopyalandı."
+          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
+            gzip -c9 kernel/out/arch/arm64/boot/Image > AnyKernel3/Image.gz
+            echo "Image sıkıştırılıp Image.gz olarak kopyalandı."
+          fi
+          
+          if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+            echo "dtbo.img kopyalandı."
+          fi
+          
+          # Sıkıştır ve flashlanabilir zip üret
+          DATE=$(date +"%Y%m%d-%H%M")
+          ZIP_NAME="SesKernel-M51-SM7150-${DATE}.zip"
+          cd AnyKernel3
+          zip -r9 ../$ZIP_NAME * -x .git README.md *placeholder
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Flashlanabilir Kernel Zip Dosyasını Yükle (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error

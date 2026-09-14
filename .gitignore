@@ -1,0 +1,10 @@
+# Derleme çıktıları ve geçici dosyalar
+kernel/out/
+toolchain/
+AnyKernel3/
+*.zip
+*.tar.gz
+*.o
+*.ko
+.DS_Store
+Thumbs.db
