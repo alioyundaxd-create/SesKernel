@@ -10,10 +10,10 @@ on:
       ksu_variant:
         description: 'KernelSU Sürümü'
         required: true
-        default: 'KernelSU-Next (En Son)'
+        default: 'KernelSU-Next (Legacy/4.14)'
         type: choice
         options:
-          - 'KernelSU-Next (En Son)'
+          - 'KernelSU-Next (Legacy/4.14)'
           - 'Official KernelSU (v0.9.5 - Legacy)'
           - 'None'
       enable_wireguard:
@@ -72,22 +72,36 @@ jobs:
           echo "Galaxy M51 SM7150 kernel kaynağı klonlanıyor..."
           git clone --depth=1 https://github.com/yuichigojo/kernel_m51.git -b 14 kernel
 
-      - name: KernelSU / KernelSU-Next Entegre Et
+      - name: KernelSU Entegre Et (Linux 4.14 Non-GKI Uyumlu)
         if: ${{ github.event_name == 'push' || inputs.ksu_variant != 'None' }}
         run: |
           cd $GITHUB_WORKSPACE/kernel
           KSU_CHOICE="${{ inputs.ksu_variant }}"
-          [ -z "$KSU_CHOICE" ] && KSU_CHOICE="KernelSU-Next (En Son)"
+          [ -z "$KSU_CHOICE" ] && KSU_CHOICE="KernelSU-Next (Legacy/4.14)"
           
-          if [ "$KSU_CHOICE" = "KernelSU-Next (En Son)" ]; then
-            echo "KernelSU-Next (En son kararlı sürüm) entegre ediliyor..."
-            curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          if [ "$KSU_CHOICE" = "KernelSU-Next (Legacy/4.14)" ]; then
+            echo "KernelSU-Next (Linux 4.14 non-GKI optimize 'legacy' dalı) entegre ediliyor..."
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
           elif [ "$KSU_CHOICE" = "Official KernelSU (v0.9.5 - Legacy)" ]; then
             echo "Official KernelSU (v0.9.5 Legacy) entegre ediliyor..."
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh" | bash -s v0.9.5
           fi
           
-          # Defconfig ayarlarını aktifleştir
+          # Out-of-tree (O=out) derlemede symlink kopmalarını önlemek için gerçek kaynakları kopyala
+          if [ -L "$GITHUB_WORKSPACE/kernel/drivers/kernelsu" ]; then
+            REAL_KSU_PATH=$(readlink -f "$GITHUB_WORKSPACE/kernel/drivers/kernelsu")
+            rm -f "$GITHUB_WORKSPACE/kernel/drivers/kernelsu"
+            cp -r "$REAL_KSU_PATH" "$GITHUB_WORKSPACE/kernel/drivers/kernelsu"
+          fi
+          
+          # Defconfig ayarlarını temiz ve garantili şekilde aktifleştir
+          bash scripts/config --file arch/arm64/configs/m51_defconfig \
+            -e KSU \
+            -e KPROBES \
+            -e HAVE_KPROBES \
+            -e KPROBE_EVENTS \
+            -e OVERLAY_FS
+          
           echo "CONFIG_KSU=y" >> arch/arm64/configs/m51_defconfig
           echo "CONFIG_KPROBES=y" >> arch/arm64/configs/m51_defconfig
           echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/m51_defconfig
@@ -110,6 +124,7 @@ jobs:
             cp -n "$GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild" "$GITHUB_WORKSPACE/kernel/net/wireguard/Makefile" || true
           fi
           
+          bash scripts/config --file arch/arm64/configs/m51_defconfig -e WIREGUARD
           echo "CONFIG_WIREGUARD=y" >> "$GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig"
           echo "==> WireGuard entegrasyonu tamamlandı."
 
@@ -124,6 +139,13 @@ jobs:
         run: |
           echo "zRAM ZSTD sıkıştırma bayrakları ayarlanıyor..."
           cd $GITHUB_WORKSPACE/kernel
+          bash scripts/config --file arch/arm64/configs/m51_defconfig \
+            -e CRYPTO_ZSTD \
+            -e ZSTD_COMPRESS \
+            -e ZSTD_DECOMPRESS \
+            -e ZRAM_DEF_COMP_ZSTD \
+            -e ZRAM_WRITEBACK
+          
           echo "CONFIG_CRYPTO_ZSTD=y" >> arch/arm64/configs/m51_defconfig
           echo "CONFIG_ZSTD_COMPRESS=y" >> arch/arm64/configs/m51_defconfig
           echo "CONFIG_ZSTD_DECOMPRESS=y" >> arch/arm64/configs/m51_defconfig
