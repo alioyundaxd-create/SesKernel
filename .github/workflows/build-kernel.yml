@@ -91,7 +91,14 @@ jobs:
           if [ -L "$GITHUB_WORKSPACE/kernel/drivers/kernelsu" ]; then
             REAL_KSU_PATH=$(readlink -f "$GITHUB_WORKSPACE/kernel/drivers/kernelsu")
             rm -f "$GITHUB_WORKSPACE/kernel/drivers/kernelsu"
-            cp -r "$REAL_KSU_PATH" "$GITHUB_WORKSPACE/kernel/drivers/kernelsu"
+            cp -rL "$REAL_KSU_PATH" "$GITHUB_WORKSPACE/kernel/drivers/kernelsu"
+          fi
+          
+          # KernelSU-Next uapi başlık dosyalarını include dizinine bağla
+          if [ -d "$GITHUB_WORKSPACE/kernel/KernelSU-Next/uapi" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/kernel/drivers/kernelsu/include"
+            rm -rf "$GITHUB_WORKSPACE/kernel/drivers/kernelsu/include/uapi"
+            cp -r "$GITHUB_WORKSPACE/kernel/KernelSU-Next/uapi" "$GITHUB_WORKSPACE/kernel/drivers/kernelsu/include/uapi"
           fi
           
           # Defconfig ayarlarını temiz ve garantili şekilde aktifleştir
@@ -170,26 +177,14 @@ jobs:
           echo "Yapılandırma dosyası hazırlanıyor: m51_defconfig"
           make O=out m51_defconfig
           
-          echo "Derleme başlatılıyor..."
+          echo "Derleme başlatılıyor: Image.gz-dtb"
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb dtbo.img || make -j$(nproc --all) O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb || make -j$(nproc --all) O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz
+            Image.gz-dtb
 
       - name: AnyKernel3 Paketini Hazırla
         run: |
@@ -199,21 +194,13 @@ jobs:
           # Özelleştirilmiş anykernel.sh dosyasını kopyala
           cp -f $GITHUB_WORKSPACE/anykernel3/anykernel.sh AnyKernel3/anykernel.sh
           
-          # Çıkan imaj dosyalarını AnyKernel3 içine aktar
+          # Çıkan imaj dosyasını AnyKernel3 içine aktar
           if [ -f kernel/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
-            echo "Image.gz-dtb kopyalandı."
+            echo "Image.gz-dtb AnyKernel3 dizinine aktarıldı."
           elif [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
             cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-            echo "Image.gz kopyalandı."
-          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
-            gzip -c9 kernel/out/arch/arm64/boot/Image > AnyKernel3/Image.gz
-            echo "Image sıkıştırılıp Image.gz olarak kopyalandı."
-          fi
-          
-          if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
-            echo "dtbo.img kopyalandı."
+            echo "Image.gz AnyKernel3 dizinine aktarıldı."
           fi
           
           # Sıkıştır ve flashlanabilir zip üret
