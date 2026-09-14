@@ -13,9 +13,11 @@ fi
 echo "==> Boeffla Wakelock Blocker entegre ediliyor: $KERNEL_DIR"
 
 # 1. Başlık dosyasını include/linux altına yerleştir
+mkdir -p "$KERNEL_DIR/include/linux"
 cp -f "$SCRIPT_DIR/boeffla_wl_blocker.h" "$KERNEL_DIR/include/linux/boeffla_wl_blocker.h"
 
 # 2. Sürücü kaynak dosyasını drivers/misc altına kopyala
+mkdir -p "$KERNEL_DIR/drivers/misc"
 cp -f "$SCRIPT_DIR/boeffla_wl_blocker.c" "$KERNEL_DIR/drivers/misc/boeffla_wl_blocker.c"
 
 # 3. drivers/misc/Makefile dosyasına sürücüyü ekle
@@ -43,14 +45,12 @@ if [ -f "$WAKEUP_C" ]; then
     fi
 
     if ! grep -q "is_boeffla_wl_blocked" "$WAKEUP_C"; then
-        # wakeup_source_activate içine kanca ekle
-        sed -i '/static void wakeup_source_activate/ {
-            n
-            a\
+        # 'unsigned int cec;' satırından sonrasına ekle
+        sed -i '/unsigned int cec;/a \
+#ifdef CONFIG_BOEFFLA_WL_BLOCKER\
 	if (is_boeffla_wl_blocked(ws->name))\
 		return;\
-
-        }' "$WAKEUP_C"
+#endif' "$WAKEUP_C"
     fi
 fi
 

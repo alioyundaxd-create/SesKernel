@@ -25,14 +25,19 @@ ui_print "*       Samsung Galaxy M51 (SM7150)         *";
 ui_print "*   KernelSU + WireGuard + Boeffla + zRAM   *";
 ui_print "*********************************************";
 
+BLOCK=boot;
+IS_SLOT_DEVICE=0;
+RAMDISK_COMPRESSION=auto;
+PATCH_VBMETA_FLAG=auto;
+
 ## AnyKernel methods (DO NOT CHANGE)
 # set up permissions/variables
 . tools/ak3-core.sh;
 
 ## AnyKernel boot install
-split_boot;
+dump_boot;
 
-flash_boot;
+write_boot;
 ## end boot install
 
 ## AnyKernel dtbo install

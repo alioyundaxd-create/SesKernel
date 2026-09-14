@@ -91,8 +91,14 @@ jobs:
         run: |
           echo "WireGuard çekirdek sürücüsü ekleniyor..."
           git clone --depth=1 https://git.zx2c4.com/wireguard-linux-compat /tmp/wireguard
-          cd /tmp/wireguard/src
-          ./patch-kernel.sh $GITHUB_WORKSPACE/kernel
+          
+          # jury-rig.sh ile çekirdek Makefile ve Kconfig bağlantısını yap
+          /tmp/wireguard/kernel-tree-scripts/jury-rig.sh $GITHUB_WORKSPACE/kernel
+          
+          # Out-of-tree (O=out) derlemede symlink kopmalarını önlemek için gerçek kaynak dosyalarını aktar
+          rm -rf $GITHUB_WORKSPACE/kernel/net/wireguard
+          cp -r /tmp/wireguard/src $GITHUB_WORKSPACE/kernel/net/wireguard
+          [ -f $GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild ] && cp -n $GITHUB_WORKSPACE/kernel/net/wireguard/Kbuild $GITHUB_WORKSPACE/kernel/net/wireguard/Makefile || true
           
           echo "CONFIG_WIREGUARD=y" >> $GITHUB_WORKSPACE/kernel/arch/arm64/configs/m51_defconfig
 
@@ -143,7 +149,13 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            Image.gz dtbo.img
+            Image.gz-dtb || make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            Image.gz
 
       - name: AnyKernel3 Paketini Hazırla
         run: |
