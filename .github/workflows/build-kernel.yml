@@ -45,25 +45,26 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev git zip unzip make curl \
             libncurses5-dev libncurses-dev libelf-dev clang lld llvm ccache \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             libxml2-utils xsltproc gnupg ca-certificates python3
 
-      - name: AOSP Clang & GCC Araç Zincirini İndir
+      - name: Proton Clang Araç Zincirini İndir
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchain
           cd $GITHUB_WORKSPACE/toolchain
+          echo "Proton Clang (Android Linux 4.14 için optimize edilmiş hepsi bir arada araç zinciri) indiriliyor..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git proton-clang
           
-          # AOSP Clang r416183b (Android 12 Clang 12.0.7 - Linux 4.14 için en stabil derleyici)
-          echo "Clang toolchain indiriliyor..."
-          curl -LSs "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r3/clang-r416183b.tar.gz" -o clang.tar.gz
-          mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm -f clang.tar.gz
-          
-          # AArch64 GCC 4.9 cross-compiler
-          echo "AArch64 GCC indiriliyor..."
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc-arm64
-          
-          # ARM32 GCC 4.9 cross-compiler
-          echo "ARM32 GCC indiriliyor..."
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc-arm
+          # aarch64-linux-android- uyumluluk köprüsü oluştur (vendor sürücülerinin hata vermemesi için)
+          mkdir -p $GITHUB_WORKSPACE/compat-bin
+          for tool in gcc ld as ar nm objcopy objdump strip; do
+            if [ -f "$GITHUB_WORKSPACE/toolchain/proton-clang/bin/aarch64-linux-gnu-$tool" ]; then
+              ln -sf "$GITHUB_WORKSPACE/toolchain/proton-clang/bin/aarch64-linux-gnu-$tool" "$GITHUB_WORKSPACE/compat-bin/aarch64-linux-android-$tool"
+            else
+              ln -sf "/usr/bin/aarch64-linux-gnu-$tool" "$GITHUB_WORKSPACE/compat-bin/aarch64-linux-android-$tool"
+            fi
+          done
 
       - name: M51 SM7150 Çekirdek Kaynağını Klonla
         run: |
@@ -133,13 +134,13 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel
           
-          export PATH=$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm64/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm/bin:$PATH
+          export PATH=$GITHUB_WORKSPACE/compat-bin:$GITHUB_WORKSPACE/toolchain/proton-clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CC=clang
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export KBUILD_BUILD_USER="SesKernel"
           export KBUILD_BUILD_HOST="GitHubActions"
           
@@ -151,20 +152,20 @@ jobs:
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz-dtb dtbo.img || make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz-dtb || make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz
 
       - name: AnyKernel3 Paketini Hazırla
